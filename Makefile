@@ -1,3 +1,8 @@
+prefix = /usr/local
+bindir = $(prefix)/bin
+
+all: ghget
+
 install: ghget
-	install -d /usr/local/bin
-	install ghget /usr/local/bin
+	install -d $(DESTDIR)$(bindir)
+	install ghget $(DESTDIR)$(bindir)
