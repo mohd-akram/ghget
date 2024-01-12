@@ -1,7 +1,7 @@
 # ghget
 
 A POSIX shell script to download files/directories from GitHub repositories.
-It uses parallel and resumable transfers via `curl`, with a progress indicator.
+It uses parallel transfers via `curl`, with a progress indicator.
 
 ## Install
 

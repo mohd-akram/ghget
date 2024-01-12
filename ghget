@@ -108,7 +108,7 @@ BEGIN {
 	print_links(ARGV[1], ARGV[2])
 }
 ' "$name" "$1" "$out" | {
-	xargs -L4 curl --create-dirs --fail-early $parallel -fsSLC - \
+	xargs -L4 curl --create-dirs --fail-early $parallel -fsSL \
 		2>&1 1>&3 3>&- |
 	awk '
 		/error: 416/ { next }
