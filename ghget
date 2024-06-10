@@ -28,7 +28,24 @@ if [ "$(ver "$curl")" -ge "$(ver 7.66.0)" ]; then
 	parallel=-Z
 fi
 
-awk -F '>' -v RS='<' -v OFS='\t' '
+awk -F '>' -v RS='<' -v OFS='\t' -v apos="'" '
+function decode_html(s, path, ent) {
+	while (match(s, /&[^;]+;/)) {
+		ent = substr(s, RSTART, RLENGTH)
+		path = path substr(s, 1, RSTART - 1) \
+			(ent in htmldec ? htmldec[ent] : ent)
+		s = substr(s, RSTART + RLENGTH)
+	}
+	return path s
+}
+function decode_url(url, path) {
+	while (match(url, /%[0-9a-zA-Z][0-9a-zA-Z]/)) {
+		path = path substr(url, 1, RSTART - 1) \
+			urldec[substr(url, RSTART, RLENGTH)]
+		url = substr(url, RSTART + RLENGTH)
+	}
+	return path url
+}
 function get_path(url, parts, n, path, i) {
 	n = split(url, parts, "/")
 	path = ""
@@ -44,7 +61,7 @@ function get_raw_url(path) {
 }
 function get_file(path, output, root) {
 	path = substr(path, length(root)+2)
-	return path ? output "/" path : output
+	return path ? output "/" decode_url(path) : output
 }
 function error(msg) {
 	printf "%s: %s\n", ARGV[0], msg > "/dev/stderr"
@@ -57,15 +74,17 @@ function print_links(\
 ) {
 	if (!output) {
 		match(url, /\/[^\/]+$/)
-		output = substr(url, RSTART+1)
+		output = decode_url(substr(url, RSTART+1))
 	}
 	type = get_type(url)
 	path = get_path(url)
 	if (!root) root = path
-	file = get_file(path, output, root)
 	if (type == "blob") {
 		++total
+		file = get_file(path, output, root)
 		url = get_raw_url(path)
+		gsub(/"/, "\"\\\"\"", file)
+		gsub(/"/, "\"\\\"\"", url)
 		printf "%s:\t\t\t %d files\r", ARGV[0], total > "/dev/stderr"
 		printf "-o \"%s\" \"%s\" " \
 			"-w \"%%{stderr}\t\bdownloaded %4d /\\n\"\n", \
@@ -83,7 +102,7 @@ function print_links(\
 	while (ret = cmd | getline) {
 		if (ret == -1) error("getline error")
 		if (!match($1, /href="\/[^"]+"/)) continue
-		path = substr($1, RSTART+6, RLENGTH-7)
+		path = decode_html(substr($1, RSTART+6, RLENGTH-7))
 		url = "https://github.com" path
 		type = get_type(url)
 		if (type != "blob" && type != "tree") continue
@@ -103,12 +122,28 @@ function print_links(\
 	if (!i) error("failed to get file list")
 }
 BEGIN {
+	htmldec["&amp;"] = "&"
+	htmldec["&lt;"] = "<"
+	htmldec["&gt;"] = ">"
+	htmldec["&quot;"] = "\""
+	htmldec["&apos;"] = apos
+	for (i = 0; i < 256; i++) {
+		c = sprintf("%c", i)
+		dec = sprintf("%02d", i)
+		hexu = sprintf("%02X", i)
+		hexl = sprintf("%02x", i)
+		urldec["%" hexu] = c
+		urldec["%" hexl] = c
+		htmldec["&#" dec ";"] = c
+		htmldec["&#x" hexu ";"] = c
+		htmldec["&#x" hexl ";"] = c
+	}
 	for (i=0; i<ARGC; i++) ARGV[i] = ARGV[i+1]; --ARGC
 	sub(/\/$/, "", ARGV[1])
 	print_links(ARGV[1], ARGV[2])
 }
 ' "$name" "$1" "$out" | {
-	xargs -L4 curl --create-dirs --fail-early $parallel -fsSL \
+	xargs -E '' -L4 curl --create-dirs --fail-early $parallel -fsSL \
 		2>&1 1>&3 3>&- |
 	awk '
 		/error: 416/ { next }
