@@ -105,18 +105,18 @@ function print_links(\
 		path = decode_html(substr($1, RSTART+6, RLENGTH-7))
 		url = "https://github.com" path
 		type = get_type(url)
-		if (type != "blob" && type != "tree") continue
+		if (!root && type != "commits") continue
+		if (root && type != "blob" && type != "tree") continue
 		path = get_path(url)
 		s = substr(path, length(start_path)+1)
 		if (!s || (start_path s) != path) continue
 		if (!root) {
-			n = split(url, parts, "/")
-			if (n != 7) continue
-			root = get_path(url)
-			start_path = root
+			sub(/\/$/, "", url)
+			root = start_path = get_path(url)
 		}
 		++i
 		print_links(url, output, root)
+		if (type == "commits") break
 	}
 	close(cmd)
 	if (!i) error("failed to get file list")
