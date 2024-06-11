@@ -16,7 +16,11 @@ while getopts :o: opt; do
 	?) usage
 	esac
 done
-shift $(($OPTIND - 1))
+shift $((OPTIND-1))
+
+if [ "$#" -ne 1 ]; then
+	usage
+fi
 
 ver() {
 	printf "%s\n" "$1" | awk -F. '{ print $1*1e6 + $2*1e3 + $3 }'
