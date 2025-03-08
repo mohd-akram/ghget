@@ -32,23 +32,76 @@ if [ "$(ver "$curl")" -ge "$(ver 7.66.0)" ]; then
 	parallel=-Z
 fi
 
-awk -F '>' -v RS='<' -v OFS='\t' -v apos="'" '
-function decode_html(s, path, ent) {
-	while (match(s, /&[^;]+;/)) {
-		ent = substr(s, RSTART, RLENGTH)
-		path = path substr(s, 1, RSTART - 1) \
-			(ent in htmldec ? htmldec[ent] : ent)
-		s = substr(s, RSTART + RLENGTH)
+LC_ALL=C awk -v apos="'" '
+function decode_url(url, rest) {
+	rest = url
+	url = ""
+	while (match(rest, /%[0-9a-fA-F][0-9a-fA-F]/)) {
+		url = url substr(rest, 1, RSTART - 1) \
+			urldec[substr(rest, RSTART, RLENGTH)]
+		rest = substr(rest, RSTART + RLENGTH)
 	}
-	return path s
+	return url rest
 }
-function decode_url(url, path) {
-	while (match(url, /%[0-9a-zA-Z][0-9a-zA-Z]/)) {
-		path = path substr(url, 1, RSTART - 1) \
-			urldec[substr(url, RSTART, RLENGTH)]
-		url = substr(url, RSTART + RLENGTH)
+function encode_url_part(s, res, i, c) {
+	res = ""
+	for (i = 1; i <= length(s); i++) {
+		c = substr(s, i, 1);
+		res = res (c ~ /[0-9A-Za-z._-]/ ? c : sprintf("%%%02X", ord[c]))
 	}
-	return path url
+	return res
+}
+function escape_shell_arg(arg) {
+	gsub(apos, apos "\\" apos apos, arg)
+	return apos arg apos
+}
+function decode_json_string(s) {
+	if (s !~ /^"/) error("invalid json string " s)
+	s = substr(s, 2, length(s)-2)
+	gsub(/\\"/, "\"", s)
+	gsub(/\\\\/, "\\", s)
+	return s
+}
+function get_json_value(s, key, type, all, rest, isval, i, c, j, k, out) {
+	type = substr(s, 1, 1)
+	if (type != "{" && type != "[")
+		error("invalid json array/object " s)
+	all = key == "" && key == 0
+	if (!all && (j = index(key, "."))) {
+		rest = substr(key, j+1)
+		key = substr(key, 1, j-1)
+	}
+	if (type == "[") k = 0
+	isval = all || type == "["
+	for (i = 2; i < length(s); i += length(c)) {
+		c = substr(s, i, 1)
+		if (c == "\"") {
+			if (!match(substr(s, i), /^"(\\.|[^\\"])*"/))
+				error("invalid json string " substr(s, i))
+			c = substr(s, i, RLENGTH)
+			if (!isval) k = substr(c, 2, length(c)-2)
+		}
+		else if (c == "{" || c == "[") {
+			c = (!all && k == key && !(rest == "" && rest == 0)) ? \
+				get_json_value(substr(s, i), rest) : \
+				get_json_value(substr(s, i))
+		}
+		else if (c == "}" || c == "]") break
+		else if (c == "," || c == ":") isval = 0
+		else if (c ~ /[[:space:]]/) continue
+		else {
+			if (!match(substr(s, i), /[]},[:space:]]/))
+				error("invalid json value " substr(s, i))
+			c = substr(s, i, RSTART-1)
+		}
+		if (!all && isval && k == key) {
+			out = c
+			break
+		}
+		if (type == "{" && c == ":") isval = 1
+		if (type == "[" && c == ",") { isval = 1; ++k }
+	}
+	return all ? substr(s, 1, i) : out
 }
 function get_path(url, parts, n, path, i) {
 	n = split(url, parts, "/")
@@ -72,14 +125,18 @@ function error(msg) {
 	print "ignore" # trigger curl error
 	exit 1
 }
-function print_links(\
+function debug(msg) {
+	printf "%s: %s\n", ARGV[0], msg > "/dev/stderr"
+}
+function print_links( \
 	url, output, root, \
-	type, path, file, parts, n, i, start_path, cmd, s, ret \
+	type, path, file, cmd, s, l, ret, items, i, item, name, parts, n, j \
 ) {
 	if (!output) {
 		match(url, /\/[^\/]+$/)
 		output = decode_url(substr(url, RSTART+1))
 	}
+	if (split(url, parts, "/") < 6) url = url "/tree/HEAD"
 	type = get_type(url)
 	path = get_path(url)
 	if (!root) root = path
@@ -90,57 +147,37 @@ function print_links(\
 		gsub(/"/, "\"\\\"\"", file)
 		gsub(/"/, "\"\\\"\"", url)
 		printf "%s:\t\t\t %d files\r", ARGV[0], total > "/dev/stderr"
-		printf "-o \"%s\" \"%s\" " \
+		printf "-o \"%s\" --url \"%s\" " \
 			"-w \"%%{stderr}\t\bdownloaded %4d /\\n\"\n", \
 			file, url, total
 		return
 	}
-	n = split(url, parts, "/")
-	url = parts[1]
-	for (i=2; i<=n; i++) url = url "/" (i == 6 ? "file-list" : parts[i])
-	# if downloading the root repo
-	if (n < 6) root = ""
-	start_path = path
-	cmd = "curl -fsSL \"" url "\""
-	i = 0
-	while (ret = cmd | getline) {
+	cmd = "curl -fsSLH Accept:application/json -- " escape_shell_arg(url)
+	s = ""
+	while (ret = cmd | getline l) {
 		if (ret == -1) error("getline error")
-		if (!match($1, /href="\/[^"]+"/)) continue
-		path = decode_html(substr($1, RSTART+6, RLENGTH-7))
-		url = "https://github.com" path
-		type = get_type(url)
-		if (!root && type != "commits") continue
-		if (root && type != "blob" && type != "tree") continue
-		path = get_path(url)
-		s = substr(path, length(start_path)+1)
-		if (!s || (start_path s) != path) continue
-		if (!root) {
-			sub(/\/$/, "", url)
-			root = start_path = get_path(url)
-		}
-		++i
-		print_links(url, output, root)
-		if (type == "commits") break
+		s = s l
 	}
 	close(cmd)
-	if (!i) error("failed to get file list")
+	if (!s || !(items = get_json_value(s, "payload.tree.items")))
+		error("failed to get file list")
+	while ((item = get_json_value(items, i++))) {
+		type = decode_json_string(get_json_value(item, "contentType"))
+		name = decode_json_string(get_json_value(item, "name"))
+		if (type == "file") {
+			n = split(url, parts, "/")
+			url = parts[1]
+			for (j=2; j<=n; j++) url = url "/" (j == 6 ? "blob" : parts[j])
+		}
+		print_links(url "/" encode_url_part(name), output, root)
+	}
 }
 BEGIN {
-	htmldec["&amp;"] = "&"
-	htmldec["&lt;"] = "<"
-	htmldec["&gt;"] = ">"
-	htmldec["&quot;"] = "\""
-	htmldec["&apos;"] = apos
 	for (i = 0; i < 256; i++) {
 		c = sprintf("%c", i)
-		dec = sprintf("%02d", i)
-		hexu = sprintf("%02X", i)
-		hexl = sprintf("%02x", i)
-		urldec["%" hexu] = c
-		urldec["%" hexl] = c
-		htmldec["&#" dec ";"] = c
-		htmldec["&#x" hexu ";"] = c
-		htmldec["&#x" hexl ";"] = c
+		ord[c] = i
+		urldec[sprintf("%%%02X", i)] = c
+		urldec[sprintf("%%%02x", i)] = c
 	}
 	for (i=0; i<ARGC; i++) ARGV[i] = ARGV[i+1]; --ARGC
 	sub(/\/$/, "", ARGV[1])
@@ -150,7 +187,6 @@ BEGIN {
 	xargs -E '' -L4 curl --create-dirs --fail-early $parallel -fsSL \
 		2>&1 1>&3 3>&- |
 	awk '
-		/error: 416/ { next }
 		/ignore/ { exit 1 }
 		/curl/ { print; exit 1 }
 		{ system("printf \"%s\r\" \"" $0 "\"") }
