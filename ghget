@@ -62,17 +62,19 @@ function decode_json_string(s) {
 	gsub(/\\\\/, "\\", s)
 	return s
 }
-function get_json_value(s, key, type, all, rest, isval, i, c, j, k, out) {
+function get_json_value( \
+	s, key, \
+	type, all, rest, isval, i, c, j, k \
+) {
 	type = substr(s, 1, 1)
-	if (type != "{" && type != "[")
-		error("invalid json array/object " s)
+	if (type != "{" && type != "[") error("invalid json array/object " s)
 	all = key == "" && key == 0
 	if (!all && (j = index(key, "."))) {
 		rest = substr(key, j+1)
 		key = substr(key, 1, j-1)
 	}
 	if (type == "[") k = 0
-	isval = all || type == "["
+	isval = type == "["
 	for (i = 2; i < length(s); i += length(c)) {
 		c = substr(s, i, 1)
 		if (c == "\"") {
@@ -87,21 +89,19 @@ function get_json_value(s, key, type, all, rest, isval, i, c, j, k, out) {
 				get_json_value(substr(s, i))
 		}
 		else if (c == "}" || c == "]") break
-		else if (c == "," || c == ":") isval = 0
+		else if (c == ",") isval = type == "["
+		else if (c == ":") ;
 		else if (c ~ /[[:space:]]/) continue
 		else {
 			if (!match(substr(s, i), /[]},[:space:]]/))
 				error("invalid json value " substr(s, i))
 			c = substr(s, i, RSTART-1)
 		}
-		if (!all && isval && k == key) {
-			out = c
-			break
-		}
+		if (!all && isval && k == key) return c
 		if (type == "{" && c == ":") isval = 1
-		if (type == "[" && c == ",") { isval = 1; ++k }
+		if (type == "[" && c == ",") ++k
 	}
-	return all ? substr(s, 1, i) : out
+	if (all) return substr(s, 1, i)
 }
 function get_path(url, parts, n, path, i) {
 	n = split(url, parts, "/")
