@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -euo pipefail
 
 name=$(basename "$0")
 
@@ -122,7 +122,6 @@ function get_file(path, output, root) {
 }
 function error(msg) {
 	printf "%s: %s\n", ARGV[0], msg > "/dev/stderr"
-	print "ignore" # trigger curl error
 	exit 1
 }
 function debug(msg) {
@@ -148,7 +147,7 @@ function print_links( \
 		gsub(/"/, "\"\\\"\"", url)
 		printf "%s:\t\t\t %d files\r", ARGV[0], total > "/dev/stderr"
 		printf "-o \"%s\" --url \"%s\" " \
-			"-w \"%%{stderr}\t\bdownloaded %4d /\\n\"\n", \
+			"-w \"%%{stderr}\t\bdownloaded %4d /\\r\"\n", \
 			file, url, total
 		return
 	}
@@ -183,13 +182,7 @@ BEGIN {
 	sub(/\/$/, "", ARGV[1])
 	print_links(ARGV[1], ARGV[2])
 }
-' "$name" "$1" "$out" | {
-	xargs -E '' -L4 curl --create-dirs --fail-early $parallel -fsSL \
-		2>&1 1>&3 3>&- |
-	awk '
-		/ignore/ { exit 1 }
-		/curl/ { print; exit 1 }
-		{ system("printf \"%s\r\" \"" $0 "\"") }
-	'
-	echo
-} 3>&1 1>&2
+' "$name" "$1" "$out" |
+xargs -E '' -L4 sh -c \
+"curl --create-dirs --fail-early $parallel -fsSL \"\$@\" || exit 255" "$0"
+echo >&2
