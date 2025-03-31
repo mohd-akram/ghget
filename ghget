@@ -46,7 +46,7 @@ function decode_url(url, rest) {
 function encode_url_part(s, res, i, c) {
 	res = ""
 	for (i = 1; i <= length(s); i++) {
-		c = substr(s, i, 1);
+		c = substr(s, i, 1)
 		res = res (c ~ /[0-9A-Za-z._-]/ ? c : sprintf("%%%02X", ord[c]))
 	}
 	return res
@@ -63,7 +63,7 @@ function decode_json_string(s) {
 	return s
 }
 function get_json_value( \
-	s, key, \
+	s, key,
 	type, all, rest, isval, i, c, j, k \
 ) {
 	type = substr(s, 1, 1)
@@ -128,7 +128,7 @@ function debug(msg) {
 	printf "%s: %s\n", ARGV[0], msg > "/dev/stderr"
 }
 function print_links( \
-	url, output, root, \
+	url, output, root,
 	type, path, file, cmd, s, l, ret, items, i, item, name, parts, n, j \
 ) {
 	if (!output) {
@@ -147,7 +147,7 @@ function print_links( \
 		gsub(/"/, "\"\\\"\"", url)
 		printf "%s:\t\t\t %d files\r", ARGV[0], total > "/dev/stderr"
 		printf "-o \"%s\" --url \"%s\" " \
-			"-w \"%%{stderr}\t\bdownloaded %4d /\\r\"\n", \
+			"-w \"%%{stderr}\t\bdownloaded %4d /\\r\"\n",
 			file, url, total
 		return
 	}
