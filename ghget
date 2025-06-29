@@ -71,7 +71,7 @@ function decode_json_string(s, out, esc) {
 }
 function get_json_value( \
 	s, key,
-	type, all, rest, isval, i, c, k \
+	type, all, rest, nested, isval, i, c, k \
 ) {
 	type = substr(s, 1, 1)
 	if (type != "{" && type != "[") error("invalid json array/object " s)
@@ -79,6 +79,7 @@ function get_json_value( \
 	if (!all && (i = index(key, "."))) {
 		rest = substr(key, i+1)
 		key = substr(key, 1, i-1)
+		nested = 1
 	}
 	if (type == "[") k = 0
 	isval = type == "["
@@ -91,7 +92,7 @@ function get_json_value( \
 			if (!isval) k = substr(c, 2, length(c)-2)
 		}
 		else if (c == "{" || c == "[") {
-			c = (!all && k == key && !(rest == "" && rest == 0)) ? \
+			c = (!all && k == key && nested) ? \
 				get_json_value(substr(s, i), rest) : \
 				get_json_value(substr(s, i))
 		}
@@ -104,7 +105,10 @@ function get_json_value( \
 				error("invalid json value " substr(s, i))
 			c = substr(s, i, RSTART-1)
 		}
-		if (!all && isval && k == key) return c
+		if (!all && k == key && isval) {
+			if (nested && substr(s, i, 1) !~ /[[{]/) return
+			return c
+		}
 		if (type == "{" && c == ":") isval = 1
 		if (type == "[" && c == ",") ++k
 	}
