@@ -56,7 +56,7 @@ function escape_shell_arg(arg) {
 	return apos arg apos
 }
 function decode_json_string(s, out, esc) {
-	if (substr(s, 1, 1) != "\"" || substr(s, length(s), 1) != "\"")
+	if (s !~ /^"./ || substr(s, length(s), 1) != "\"")
 		error("invalid json string " s)
 	s = substr(s, 2, length(s)-2)
 	esc["b"] = "\b"; esc["f"] = "\f"; esc["n"] = "\n"; esc["\""] = "\""
