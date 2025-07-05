@@ -70,8 +70,8 @@ function decode_json_string(s, out, esc) {
 	return out s
 }
 function get_json_value( \
-	s, key,
-	type, all, rest, isval, i, c, k \
+	s, key, a,
+	skip, type, all, rest, isval, i, c, k, null \
 ) {
 	if (match(s, /^[[:space:]]+/)) s = substr(s, RLENGTH+1)
 	type = substr(s, 1, 1)
@@ -98,8 +98,9 @@ function get_json_value( \
 		else if (c == ":") isval = 1
 		else {
 			if (!all && k == key && isval)
-				return get_json_value(substr(s, i), rest)
-			c = get_json_value(substr(s, i))
+				return get_json_value(substr(s, i), rest, a)
+			c = get_json_value(substr(s, i), null, null, 1)
+			if (all && !skip && isval) a[k] = c
 			if (c ~ /^"/ && !isval) k = substr(c, 2, length(c)-2)
 		}
 	}
@@ -162,11 +163,12 @@ function print_links( \
 		s = s l
 	}
 	close(cmd)
-	if (!s || !(items = get_json_value(s, "payload.tree.items")))
+	if (!s || !get_json_value(s, "payload.tree.items", items))
 		error("failed to get file list")
-	while ((item = get_json_value(items, i++))) {
-		type = decode_json_string(get_json_value(item, "contentType"))
-		name = decode_json_string(get_json_value(item, "name"))
+	for (i = 0; items[i]; i++) {
+		get_json_value(items[i], null, item)
+		type = decode_json_string(item["contentType"])
+		name = decode_json_string(item["name"])
 		if (type == "file") {
 			n = split(url, parts, "/")
 			url = parts[1]
