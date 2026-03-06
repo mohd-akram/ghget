@@ -163,7 +163,7 @@ function print_links( \
 		s = s l
 	}
 	close(cmd)
-	if (!s || !get_json_value(s, "payload.tree.items", items))
+	if (!s || !get_json_value(s, "payload.codeViewTreeRoute.tree.items", items))
 		error("failed to get file list")
 	for (i = 0; items[i]; i++) {
 		get_json_value(items[i], null, item)
