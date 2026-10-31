@@ -55,7 +55,7 @@ function escape_shell_arg(arg) {
 	gsub(apos, apos "\\" apos apos, arg)
 	return apos arg apos
 }
-function decode_json_string(s, out, esc) {
+function jsonunquote(s, out, esc) {
 	if (s !~ /^"./ || substr(s, length(s), 1) != "\"")
 		error("invalid json string " s)
 	s = substr(s, 2, length(s)-2)
@@ -69,7 +69,7 @@ function decode_json_string(s, out, esc) {
 	}
 	return out s
 }
-function get_json_value( \
+function jsonget( \
 	s, key, a,
 	skip, type, all, rest, isval, i, c, k, null \
 ) {
@@ -98,8 +98,8 @@ function get_json_value( \
 		else if (c == ":") isval = 1
 		else {
 			if (!all && k == key && isval)
-				return get_json_value(substr(s, i), rest, a)
-			c = get_json_value(substr(s, i), null, null, 1)
+				return jsonget(substr(s, i), rest, a)
+			c = jsonget(substr(s, i), null, null, 1)
 			if (all && !skip && isval) a[k] = c
 			if (c ~ /^"/ && !isval) k = substr(c, 2, length(c)-2)
 		}
@@ -118,6 +118,14 @@ function get_type(url, parts) {
 	split(url, parts, "/")
 	return parts[6]
 }
+function get_url(url, name, type, parts, n, i) {
+	if (type == "blob") {
+		n = split(url, parts, "/")
+		url = parts[1]
+		for (i=2; i<=n; i++) url = url "/" (i == 6 ? type : parts[i])
+	}
+	return url "/" encode_url_part(name)
+}
 function get_raw_url(path) {
 	return "https://raw.githubusercontent.com" path
 }
@@ -134,7 +142,7 @@ function debug(msg) {
 }
 function print_links( \
 	url, output, root,
-	type, path, file, cmd, s, l, ret, items, i, item, name, parts, n, j \
+	type, path, file, cmd, s, l, ret, items, i, item, name \
 ) {
 	if (!output) {
 		match(url, /\/[^\/]+$/)
@@ -157,32 +165,27 @@ function print_links( \
 		return
 	}
 	cmd = "curl -fsSLH Accept:application/json -- " escape_shell_arg(url)
-	s = ""
-	while (ret = cmd | getline l) {
-		if (ret == -1) error("getline error")
-		s = s l
-	}
-	close(cmd)
-	if (!s || !get_json_value(s, "payload.codeViewTreeRoute.tree.items", items))
+	for (s = ""; (ret = cmd | getline l) > 0; s = s l) ;
+	if ( \
+		close(cmd) || ret || !s ||
+		!jsonget(s, "payload.codeViewTreeRoute.tree.items", items) \
+	)
 		error("failed to get file list")
 	for (i = 0; items[i]; i++) {
-		get_json_value(items[i], null, item)
-		type = decode_json_string(item["contentType"])
-		name = decode_json_string(item["name"])
-		if (type == "file") {
-			n = split(url, parts, "/")
-			url = parts[1]
-			for (j=2; j<=n; j++) url = url "/" (j == 6 ? "blob" : parts[j])
-		}
-		print_links(url "/" encode_url_part(name), output, root)
+		jsonget(items[i], null, item)
+		type = jsonunquote(item["contentType"])
+		name = jsonunquote(item["name"])
+		print_links( \
+			get_url(url, name, type == "file" ? "blob" : "tree"),
+			output, root \
+		)
 	}
 }
 BEGIN {
 	for (i = 0; i < 256; i++) {
 		c = sprintf("%c", i)
 		ord[c] = i
-		urldec[sprintf("%%%02X", i)] = c
-		urldec[sprintf("%%%02x", i)] = c
+		urldec[sprintf("%%%02X", i)] = urldec[sprintf("%%%02x", i)] = c
 	}
 	for (i=0; i<ARGC; i++) ARGV[i] = ARGV[i+1]; --ARGC
 	sub(/\/$/, "", ARGV[1])
